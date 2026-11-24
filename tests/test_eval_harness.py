@@ -1,4 +1,5 @@
 import json
+import tempfile
 
 import pytest
 
@@ -41,6 +42,23 @@ async def test_empty_provider_reports_misses_without_division_error():
     assert (metrics.precision, metrics.recall) == (0, 0)
     assert metrics.false_negatives == 4
     assert metrics.false_positive_rate == 0
+
+
+@pytest.mark.asyncio
+async def test_benchmark_accepts_aliased_temp_directory(tmp_path, monkeypatch):
+    real_temp = tmp_path / "real"
+    real_temp.mkdir()
+    alias = tmp_path / "alias"
+    try:
+        alias.symlink_to(real_temp, target_is_directory=True)
+    except OSError:
+        pytest.skip("directory symlinks are unavailable")
+    monkeypatch.setattr(tempfile, "tempdir", str(alias))
+
+    metrics = await run_benchmark(
+        settings=Settings(llm_provider="mock"), fixtures=benchmark_fixtures()[:1]
+    )
+    assert metrics.true_positives == 1
 
 
 @pytest.mark.asyncio

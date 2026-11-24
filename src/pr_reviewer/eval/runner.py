@@ -92,7 +92,9 @@ async def run_benchmark(
     clean_cases = clean_cases_with_findings = 0
     for fixture in fixtures:
         with tempfile.TemporaryDirectory(prefix="diffpulse-eval-") as temporary:
-            root = Path(temporary)
+            # Temporary directories may be reached through an alias (for
+            # example, a Windows short path). Compare canonical paths.
+            root = Path(temporary).resolve()
             for path, content in fixture.files.items():
                 target = root / path
                 if not target.resolve().is_relative_to(root):
