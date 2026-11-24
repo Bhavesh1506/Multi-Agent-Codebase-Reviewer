@@ -33,9 +33,12 @@ def create_app(
 
     async def review(diff: str) -> PipelineResult:
         try:
-            return await reviewer.review_diff(diff)
+            result = await reviewer.review_diff(diff)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if result.traces and all(trace.error for trace in result.traces):
+            raise HTTPException(status_code=503, detail="all review agents failed; check the model provider")
+        return result
 
     @app.post("/review/diff", response_model=PipelineResult)
     async def review_diff(request: DiffRequest) -> PipelineResult:
@@ -62,6 +65,8 @@ def create_app(
             payload = json.loads(body)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail="invalid JSON payload") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="webhook payload must be a JSON object")
         if payload.get("action") not in {"opened", "reopened", "synchronize"}:
             return {"status": "ignored", "reason": "unsupported action"}
         diff = payload.get("diff")

@@ -17,6 +17,7 @@ def main(argv: list[str] | None = None) -> int:
     review.add_argument("diff", help="diff file path, or - for stdin")
     review.add_argument("--root", type=Path, default=Path.cwd(), help="repository working tree")
     review.add_argument("--mock", action="store_true", help="offline deterministic provider")
+    review.add_argument("--heuristic", action="store_true", help="offline pattern baseline")
     evaluation = subcommands.add_parser("eval", help="run offline benchmark fixtures")
     evaluation.add_argument("--mock", action="store_true", help="offline deterministic provider")
     evaluation.add_argument("--json", action="store_true", help="machine-readable metrics")
@@ -25,10 +26,19 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "review":
         try:
             diff_text = sys.stdin.read() if args.diff == "-" else Path(args.diff).read_text(encoding="utf-8")
-            result = asyncio.run(ReviewOrchestrator(args.root, settings=settings).review_diff(diff_text))
+            provider = None
+            if args.heuristic:
+                from pr_reviewer.eval.runner import heuristic_response
+                from pr_reviewer.llm.mock_client import MockClient
+
+                provider = MockClient(heuristic_response)
+            result = asyncio.run(ReviewOrchestrator(args.root, provider=provider, settings=settings).review_diff(diff_text))
         except (OSError, ValueError) as exc:
             parser.exit(2, f"diffpulse: {exc}\n")
         print(result.model_dump_json(indent=2))
+        if result.traces and all(trace.error for trace in result.traces):
+            print("diffpulse: all review agents failed; check the model provider", file=sys.stderr)
+            return 3
         return 0
     from pr_reviewer.eval.runner import run_benchmark
 

@@ -8,6 +8,7 @@ from pr_reviewer.cli import main
 from pr_reviewer.agents.critic_synthesizer import CriticSynthesizer
 from pr_reviewer.config import Settings
 from pr_reviewer.llm.mock_client import MockClient
+from pr_reviewer.llm.base import LLMError, LLMProvider, LLMResponse
 from pr_reviewer.pipeline.orchestrator import ReviewOrchestrator
 from pr_reviewer.schemas import Finding
 
@@ -102,6 +103,20 @@ async def test_api_rejects_malformed_diff_and_untrusted_url(tmp_path):
         payload = {"action": "opened", "pull_request": {"diff_url": "http://127.0.0.1/private"}}
         response = await client.post("/webhooks/github", json=payload, headers={"X-GitHub-Event": "pull_request"})
         assert response.status_code == 422
+        response = await client.post("/webhooks/github", json=[], headers={"X-GitHub-Event": "pull_request"})
+        assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_api_reports_model_outage(tmp_path):
+    class OfflineProvider(LLMProvider):
+        async def generate(self, prompt: str, schema: dict) -> LLMResponse:
+            raise LLMError("local model unavailable")
+
+    transport = httpx.ASGITransport(app=create_app(tmp_path, provider=OfflineProvider()))
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/review/diff", json={"diff": DIFF})
+    assert response.status_code == 503
 
 
 def test_cli_review_with_offline_provider(tmp_path, capsys):
@@ -110,3 +125,18 @@ def test_cli_review_with_offline_provider(tmp_path, capsys):
     assert main(["review", str(diff_file), "--root", str(tmp_path), "--mock"]) == 0
     output = json.loads(capsys.readouterr().out)
     assert output["verdict"]["changed_files"] == ["src/billing/prices.py"]
+
+
+def test_cli_heuristic_finds_planted_contract_change(tmp_path, capsys):
+    from pr_reviewer.eval.fixtures import benchmark_fixtures
+
+    fixture = next(item for item in benchmark_fixtures() if item.name == "renamed_response_field")
+    diff_file = tmp_path / "change.diff"
+    diff_file.write_text(fixture.diff)
+    for path, content in fixture.files.items():
+        target = tmp_path / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content)
+    assert main(["review", str(diff_file), "--root", str(tmp_path), "--heuristic"]) == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["verdict"]["findings"][0]["line"] == 2

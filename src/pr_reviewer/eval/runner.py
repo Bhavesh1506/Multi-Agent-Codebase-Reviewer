@@ -40,7 +40,7 @@ class BenchmarkMetrics(StrictModel):
     cases: list[CaseResult]
 
 
-def _heuristic_response(prompt: str, _schema: dict) -> dict:
+def heuristic_response(prompt: str, _schema: dict) -> dict:
     """Transparent offline baseline; only changed-line patterns are inspected."""
     agent = prompt.splitlines()[0].removeprefix("Agent: ")
     context = json.loads(prompt.split("Context: ", 1)[1].split("\nPrevious response", 1)[0])
@@ -83,7 +83,7 @@ async def run_benchmark(
     settings = settings or Settings()
     fixtures = benchmark_fixtures() if fixtures is None else fixtures
     if provider is None and settings.llm_provider == "mock":
-        provider = MockClient(_heuristic_response)
+        provider = MockClient(heuristic_response)
         provider_name = "heuristic_mock"
     else:
         provider_name = type(provider).__name__ if provider is not None else settings.llm_provider
