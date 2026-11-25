@@ -5,6 +5,7 @@ import time
 
 from pydantic import Field, ValidationError
 
+from pr_reviewer.pipeline.events import report_retry
 from pr_reviewer.llm.base import LLMError, LLMProvider
 from pr_reviewer.schemas import Finding, StrictModel
 
@@ -61,6 +62,8 @@ class BaseAgent:
                 except (ValidationError, ValueError) as exc:
                     result.output = AgentOutput()
                     result.error = f"invalid agent JSON: {exc.__class__.__name__}"
+                    if step < self.max_steps:
+                        report_retry(result.error)
                     prompt += "\nPrevious response failed schema validation. Return only valid JSON."
         except LLMError as exc:
             result.error = str(exc)

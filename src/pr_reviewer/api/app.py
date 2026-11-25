@@ -10,6 +10,7 @@ import httpx
 from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import Field
 
+from pr_reviewer.api.visualizer import mount_visualizer
 from pr_reviewer.config import Settings
 from pr_reviewer.llm.base import LLMProvider
 from pr_reviewer.pipeline.orchestrator import PipelineResult, ReviewOrchestrator
@@ -90,6 +91,7 @@ def create_app(
             raise HTTPException(status_code=422, detail="diff is empty or too large")
         return await review(diff)
 
+    mount_visualizer(app, settings.islands_events_dir)
     return app
 
 

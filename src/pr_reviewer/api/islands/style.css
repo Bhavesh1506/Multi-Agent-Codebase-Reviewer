@@ -1,0 +1,161 @@
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: #f5f3eb;
+  color: #203b38;
+  font:
+    15px/1.45 system-ui,
+    sans-serif;
+}
+header,
+nav,
+main,
+.crew {
+  padding: 14px clamp(16px, 4vw, 60px);
+}
+header {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  background: #173e3c;
+  color: #fff;
+}
+.brand {
+  font-weight: 650;
+  color: #b6e3cf;
+}
+h1 {
+  font:
+    600 32px Georgia,
+    serif;
+  margin: 0;
+}
+#status {
+  margin-left: auto;
+  font: 13px monospace;
+}
+nav,
+.legend,
+#crew,
+.heading {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+nav {
+  border-bottom: 1px solid #ccd6cb;
+}
+button,
+select,
+input {
+  font: inherit;
+}
+button,
+select {
+  background: #fffdf7;
+  border: 1px solid #abbcb0;
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: inherit;
+}
+button {
+  cursor: pointer;
+}
+main {
+  display: grid;
+  grid-template-columns: minmax(0, 2.6fr) minmax(230px, 1fr);
+  gap: 18px;
+}
+h2 {
+  font:
+    600 22px Georgia,
+    serif;
+  margin: 0 0 10px;
+}
+.heading {
+  justify-content: space-between;
+}
+.heading span,
+.legend,
+small {
+  font-size: 12px;
+}
+.viewport {
+  border-radius: 12px;
+  overflow: auto;
+  background: #cae5df;
+  max-height: 62vh;
+  border: 1px solid #aac9bd;
+}
+canvas {
+  display: block;
+  cursor: pointer;
+}
+.legend {
+  padding: 9px 2px;
+}
+.legend b {
+  color: #a93d2b;
+}
+.legend i {
+  color: #6a7373;
+}
+aside {
+  border: 1px solid #cad3c7;
+  background: #fffdf6;
+  border-radius: 12px;
+  padding: 15px;
+  max-height: 68vh;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+aside select {
+  max-width: 100%;
+}
+aside h3 {
+  margin: 14px 0 4px;
+  font-size: 14px;
+}
+aside ul {
+  padding-left: 18px;
+  margin: 0;
+  font-size: 13px;
+}
+#crew button {
+  text-align: left;
+  min-width: 130px;
+  border-top: 3px solid var(--color);
+}
+small {
+  display: block;
+}
+.crew {
+  padding-top: 0;
+}
+.sr {
+  position: absolute;
+  clip-path: inset(100%);
+}
+[hidden] {
+  display: none !important;
+}
+@media (max-width: 760px) {
+  main {
+    grid-template-columns: 1fr;
+  }
+  .viewport {
+    max-height: 55vh;
+  }
+  aside {
+    max-height: 38vh;
+  }
+  header {
+    gap: 10px;
+  }
+  h1 {
+    font-size: 25px;
+  }
+}

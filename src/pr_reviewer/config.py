@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = Field(default=60, gt=0)
     review_confidence_threshold: float = Field(default=0.75, ge=0, le=1)
     review_max_agent_steps: int = Field(default=3, ge=1, le=20)
+    islands_events_dir: Path | None = None
     sqlite_path: Path = Path(".diffpulse/reviews.sqlite3")
     github_webhook_secret: str | None = None
     github_token: str | None = None

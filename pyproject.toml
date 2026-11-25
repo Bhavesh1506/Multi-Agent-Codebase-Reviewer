@@ -27,3 +27,6 @@ diffpulse = "pr_reviewer.cli:main"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_default_fixture_loop_scope = "function"
+
+[tool.setuptools.package-data]
+"pr_reviewer.api" = ["islands/*.html", "islands/*.css", "islands/*.js"]

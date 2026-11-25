@@ -5,6 +5,7 @@ import time
 
 import httpx
 
+from pr_reviewer.pipeline.events import report_retry
 from pr_reviewer.llm.base import LLMError, LLMProvider, LLMResponse
 
 
@@ -53,5 +54,6 @@ class OllamaClient(LLMProvider):
                 raise LLMError("Ollama returned invalid JSON") from exc
             if attempt == self.max_attempts:
                 raise LLMError(f"{reason} after {attempt} attempts")
+            report_retry(reason)
             await asyncio.sleep(min(0.25 * 2 ** (attempt - 1), 1.0))
         raise AssertionError("unreachable")

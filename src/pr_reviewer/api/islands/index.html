@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Repo Islands · DiffPulse</title>
+    <link rel="stylesheet" href="style.css" />
+    <script defer src="map.js"></script>
+  </head>
+  <body>
+    <header>
+      <span class="brand">◈ &nbsp; DiffPulse</span>
+      <h1>Repo Islands</h1>
+      <span id="status" role="status">Demo</span>
+    </header>
+    <nav aria-label="Playback">
+      <label
+        >Source
+        <select id="source">
+          <option value="demo">Demo voyage</option>
+          <option value="live">Live journal</option>
+          <option value="file">Recorded file</option>
+        </select></label
+      >
+      <select id="runs" aria-label="Recorded run" hidden></select
+      ><input
+        type="file"
+        id="file"
+        accept=".jsonl"
+        hidden
+        aria-label="Open JSONL recording"
+      />
+      <button id="restart">Replay</button><button id="pause">Pause</button
+      ><label
+        >Speed
+        <select id="speed">
+          <option>0.5</option>
+          <option selected>1</option>
+          <option>2</option>
+          <option>4</option>
+        </select>
+        ×</label
+      >
+    </nav>
+    <main>
+      <section class="chart">
+        <div class="heading">
+          <h2>Module chart</h2>
+          <span id="progress"></span>
+        </div>
+        <div class="viewport">
+          <canvas
+            id="map"
+            aria-label="Island map. Choose an island or agent in the inspector for details."
+          ></canvas>
+        </div>
+        <div class="legend">
+          <b>◆</b> Raised finding <i>×</i> Filtered <span>⚑</span> Touched
+          module
+        </div>
+      </section>
+      <aside>
+        <h2>Inspector</h2>
+        <label class="sr" for="entity">Select an island or villager</label
+        ><select id="entity"></select>
+        <div id="details"></div>
+      </aside>
+    </main>
+    <section class="crew">
+      <h2>Villagers</h2>
+      <div id="crew"></div>
+    </section>
+  </body>
+</html>

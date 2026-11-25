@@ -57,3 +57,39 @@ For real-diff smoke testing, `review --heuristic` processed the repository's web
 ## Current scope
 
 The webhook returns a review response; it does not post GitHub comments. The symbol graph resolves direct Python calls and some import aliases, and the heuristic patterns are deliberately narrow. SQLite history and an OpenAI-compatible provider are planned interfaces, not implemented storage or adapters.
+
+## Repo Islands and Agent Villagers
+
+Open **http://127.0.0.1:8001/islands/** after starting the local API.
+The built-in demo plays a repeatable run in the browser, including a retry
+and a dropped finding. Select a villager or island on the canvas or in the
+inspector to see its files, symbols, findings and recent events. Replay,
+pause and speed controls work on any source.
+
+Recording is opt-in. Set `ISLANDS_EVENTS_DIR=.diffpulse/islands` in the
+repo's local `.env` before starting the CLI or API. Use the same absolute
+directory if they run from different working directories. Run a normal
+review from the CLI, the diff endpoint or the webhook. Choose **Live journal**
+in the viewer to follow the latest run or select a run ID. **Recorded file**
+reads one exported JSONL file directly in your browser.
+
+Each review appends timestamped, numbered events to its own UUID-named JSONL
+file. The viewer polls read-only GET endpoints with a byte cursor and never
+calls the reviewer. Recording failures disable that run's observer. Journals
+contain repository names, file paths, symbols and finding titles. Keep the
+server bound to localhost when reviewing private code.
+
+Specialists analyze the same batch. Their role posts initially sit on its first
+island, and their inspector lists the full assignment. A raised finding moves
+its marker to the reported file's island. The deterministic critic marks
+rejected candidates with a gray cross. The map represents module-level
+activity, including schema retries, Ollama transport retries and degraded
+agent results. Replay compresses long idle periods and spaces out bursts so
+individual events remain visible.
+
+With the project's virtual environment active:
+
+```shell
+python -m pytest -q
+python -m uvicorn pr_reviewer.api.app:app --host 127.0.0.1 --port 8001
+```
