@@ -18,7 +18,7 @@ from pr_reviewer.ingestion.local_index import LocalIndex
 from pr_reviewer.llm.base import LLMProvider
 from pr_reviewer.llm.mock_client import MockClient
 from pr_reviewer.llm.ollama_client import OllamaClient
-from pr_reviewer.pipeline.events import Journal, observe_agent
+from pr_reviewer.pipeline.events import Journal, island_for, observe_agent
 from pr_reviewer.schemas import FileDiff, ReviewVerdict, StrictModel
 
 
@@ -89,7 +89,8 @@ class ReviewOrchestrator:
         failed = bool(result.traces) and errors == len(result.traces)
         journal.emit("run_failed" if failed else "run_completed",
                      "failed" if failed else "degraded" if errors else "completed",
-                     findings=len(result.verdict.findings), failed_agents=errors)
+                     findings=len(result.verdict.findings), failed_agents=errors,
+                     total_tokens=result.total_tokens, latency_seconds=result.latency_seconds)
         return result
 
     async def _review(self, diff_text: str, journal: Journal | None) -> PipelineResult:
@@ -99,24 +100,30 @@ class ReviewOrchestrator:
         context = {"files": [self._file_context(file, index) for file in parsed.files[:20]]}
         if journal:
             by_path = {f["path"]: f["changed_symbols"] for f in context["files"]}
+            paths = list(by_path)
+            first_path_by_island = {}
+            for path in paths:
+                first_path_by_island.setdefault(island_for(path, self.root.name), path)
+            anchors = list(first_path_by_island.values())
             for file in parsed.files:
                 journal.emit("stage_changed", "touched", path=file.path,
                              symbols=by_path.get(file.path, []))
         traces = []
         candidates = []
-        for agent in self.agents:
+        for number, agent in enumerate(self.agents):
             if journal:
-                # All specialists receive the same batch. Anchor the role post on
-                # its first file and record the complete assignment for inspection.
-                paths = [f["path"] for f in context["files"]]
-                anchor = paths[0] if paths else ""
-                journal.emit("agent_moved", "analyzing", agent=agent.name, path=anchor, paths=paths)
+                # Spread role posts across the batch. The anchor is a map location,
+                # and the full batch remains visible in the inspector.
+                anchor = anchors[number % len(anchors)] if anchors else ""
+                journal.emit("agent_moved", "analyzing", agent=agent.name, path=anchor,
+                             paths=paths, detail="Assigned the full review batch")
                 with observe_agent(journal, agent.name, anchor):
                     trace = await agent.run(context)
                 for number, finding in enumerate(trace.output.findings):
                     fields = dict(agent=agent.name, path=finding.path, line=finding.line,
                                   finding_id=f"{agent.name}/{number}", title=finding.title,
-                                  confidence=finding.confidence, explanation=finding.explanation)
+                                  confidence=finding.confidence, explanation=finding.explanation,
+                                  severity=finding.severity, evidence=finding.evidence)
                     candidates.append((finding, fields))
                     journal.emit("finding_raised", "flagged", **fields)
                 journal.emit("stage_changed", "degraded" if trace.error else "completed",
@@ -134,7 +141,12 @@ class ReviewOrchestrator:
             finding for trace in traces for finding in trace.output.findings
             if finding.path in changed_lines and finding.line in changed_lines[finding.path]
         ]
+        critic_started = time.monotonic()
         accepted = self.critic.synthesize(findings, self.min_confidence)
+        if journal:
+            journal.emit("agent_step", "completed", agent=self.critic.name, step=1,
+                         prompt_tokens=0, completion_tokens=0,
+                         latency_seconds=time.monotonic() - critic_started)
         if journal:
             kept = {id(finding) for finding in accepted}
             for finding, fields in candidates:
@@ -149,6 +161,10 @@ class ReviewOrchestrator:
                         reason = "Duplicate finding"
                     journal.emit("finding_filtered", "filtered", **fields,
                                  reviewer=self.critic.name, detail=reason)
+                else:
+                    journal.emit("finding_kept", "kept", **fields, reviewer=self.critic.name,
+                                 detail="On a changed line, meets the confidence threshold, "
+                                        "includes evidence, and won deduplication")
             journal.emit("stage_changed", "completed", agent=self.critic.name)
         verdict = ReviewVerdict(
             findings=accepted,

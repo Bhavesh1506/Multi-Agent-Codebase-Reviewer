@@ -159,3 +159,23 @@ small {
     font-size: 25px;
   }
 }
+
+.timeline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.timeline input {
+  width: clamp(100px, 14vw, 210px);
+  accent-color: #1a7169;
+}
+.readouts {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.finding-link {
+  margin: 2px 0;
+  padding: 4px 8px;
+  text-align: left;
+}

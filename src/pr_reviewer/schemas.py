@@ -1,6 +1,7 @@
 """Strict contracts shared by ingestion and later review stages."""
 
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -75,6 +76,9 @@ class Finding(StrictModel):
     explanation: str
     confidence: float = Field(ge=0, le=1)
     evidence: list[str] = Field(default_factory=list)
+    severity: Literal["low", "medium", "high", "critical"] | None = Field(
+        default=None, description="Impact if the issue is real. Leave null when impact is unclear."
+    )
 
 
 class ReviewVerdict(StrictModel):

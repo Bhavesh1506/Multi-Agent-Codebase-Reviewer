@@ -57,3 +57,9 @@ def report_retry(reason: str):
     if active := _active.get():
         journal, name, path = active
         journal.emit("stage_changed", "retrying", agent=name, path=path, detail=reason)
+
+
+def report_step(step: int, status: str, **details):
+    if active := _active.get():
+        journal, name, path = active
+        journal.emit("agent_step", status, agent=name, path=path, step=step, **details)

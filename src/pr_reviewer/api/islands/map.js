@@ -48,13 +48,31 @@ function demo() {
   agents.slice(0, 4).forEach((a, i) => {
     const p = files[[1, 0, 2, 3][i]];
     emit("agent_moved", "analyzing", a, p, { paths: [p] });
-    if (i === 2)
+    emit("agent_step", "analyzing", a, p, { step: 1 });
+    if (i === 2) {
       emit("stage_changed", "retrying", a, p, { detail: "Model timeout" });
+    }
+    emit("agent_step", "completed", a, p, {
+      step: 1,
+      prompt_tokens: 160 + i * 15,
+      completion_tokens: 40 + i * 5,
+      latency_seconds: 0.24 + i * 0.16,
+    });
     if (i === 1 || i === 2) {
       const f = {
         title: i === 1 ? "Response field renamed" : "Possible lock gap",
         line: i === 1 ? 18 : 32,
         confidence: i === 1 ? 0.91 : 0.58,
+        severity: i === 1 ? "high" : "medium",
+        explanation:
+          i === 1
+            ? "Existing clients still read the original field."
+            : "The lock may be released before the update.",
+        evidence: [
+          i === 1
+            ? "The response now uses order_ref."
+            : "The update occurs after the lock block.",
+        ],
         finding_id: a + "/0",
       };
       flags.push([a, p, f]);
@@ -64,7 +82,18 @@ function demo() {
   });
   emit("agent_moved", "analyzing", agents[4]);
   const [a, p, f] = flags[1];
-  emit("finding_filtered", "filtered", a, p, { ...f, reviewer: agents[4] });
+  emit("finding_filtered", "filtered", a, p, {
+    ...f,
+    reviewer: agents[4],
+    detail: "Below confidence threshold",
+  });
+  const [keptAgent, keptPath, keptFinding] = flags[0];
+  emit("finding_kept", "kept", keptAgent, keptPath, {
+    ...keptFinding,
+    reviewer: agents[4],
+    detail:
+      "On a changed line, meets the confidence threshold, and includes evidence.",
+  });
   emit("stage_changed", "completed", agents[4]);
   emit("run_completed", "completed", "", "", { findings: 1 });
   return events;
@@ -84,42 +113,121 @@ let selection = "hub",
   villagers,
   markers,
   hitboxes = [];
-function reset(data = []) {
-  events = data;
+function clearState() {
   pos = 0;
-  due = 0;
-  selection = "hub";
   stage = "Ready";
   repo = "";
   islands = new Map();
-  villagers = new Map(agents.map((a) => [a, { status: "idle", island: null }]));
+  villagers = new Map(
+    agents.map((a) => [a, { status: "idle", island: null, steps: new Map() }]),
+  );
   markers = new Map();
+}
+function reset(data = []) {
+  events = data;
+  due = 0;
+  selection = "hub";
+  clearState();
   renderPanel();
 }
 function apply(e) {
   repo = e.repo;
-  if (e.path && !islands.has(e.island))
-    islands.set(e.island, { files: new Set(), symbols: new Set() });
-  if (e.path) {
-    const land = islands.get(e.island);
-    land.files.add(e.path);
-    for (const s of e.symbols || []) land.symbols.add(s);
+  if (e.path && !islands.has(e.island)) {
+    islands.set(e.island, { status: "Touched" });
   }
-  const who = e.reviewer || e.agent;
-  if (villagers.has(who)) {
-    const v = villagers.get(who);
-    v.status = e.status;
-    v.island = e.path ? e.island : null;
+  const villager = villagers.get(e.agent);
+  if (e.event === "agent_moved" && villager) {
+    villager.status = "analyzing";
+    villager.island = e.path ? e.island : null;
+    if (e.path) islands.get(e.island).status = "In review";
   }
-  if (e.event === "finding_raised" || e.event === "finding_filtered")
+  if (e.event === "stage_changed" && villager) {
+    villager.status = e.status;
+  }
+  if (e.event === "agent_step" && villager) {
+    villager.steps.set(e.step, e);
+    if (e.status === "analyzing") villager.status = e.status;
+  }
+  if (e.event === "finding_raised") {
     markers.set(e.finding_id, e);
+    if (villager) {
+      villager.status = "flagged";
+      villager.island = e.island;
+    }
+  }
+  if (e.event === "finding_filtered" || e.event === "finding_kept") {
+    markers.set(e.finding_id, { ...markers.get(e.finding_id), ...e });
+    if (e.event === "finding_filtered" && villager)
+      villager.status = "filtered";
+  }
   if (e.event.startsWith("run_")) stage = e.status;
+}
+function pausePlayback(value) {
+  paused = value;
+  $("pause").textContent = paused ? "Resume" : "Pause";
+}
+function seek(index) {
+  pausePlayback(true);
+  const target = Math.max(0, Math.min(events.length, index));
+  if (target < pos) {
+    clearState();
+    // Reconstructed characters start at their historical positions.
+    snapPositions = true;
+  }
+  while (pos < target) apply(events[pos++]);
   renderPanel();
+}
+let snapPositions = false;
+
+function usageText(steps) {
+  const completed = steps.filter((e) => Number.isFinite(e.latency_seconds));
+  if (!completed.length) return "Usage unavailable";
+  const tokens = completed.filter(
+    (e) =>
+      Number.isFinite(e.prompt_tokens) && Number.isFinite(e.completion_tokens),
+  );
+  const total = tokens.reduce(
+    (sum, e) => sum + e.prompt_tokens + e.completion_tokens,
+    0,
+  );
+  const seconds = completed.reduce((sum, e) => sum + e.latency_seconds, 0);
+  return (
+    (tokens.length
+      ? total.toLocaleString() + " tokens"
+      : "Tokens unavailable") +
+    " · " +
+    seconds.toFixed(2) +
+    " s"
+  );
+}
+function updateReadouts() {
+  $("timeline").max = events.length;
+  $("timeline").value = pos;
+  $("back").disabled = pos === 0;
+  $("next").disabled = pos === events.length;
+  $("progress").textContent = pos + " / " + events.length + " events";
+  const current = events[pos - 1];
+  $("metrics").textContent =
+    current && Number.isFinite(current.total_tokens)
+      ? current.total_tokens.toLocaleString() +
+        " tokens · " +
+        current.latency_seconds.toFixed(2) +
+        " s wall time"
+      : usageText(
+          Array.from(villagers.values()).flatMap((v) =>
+            Array.from(v.steps.values()),
+          ),
+        );
 }
 function el(tag, text) {
   const n = document.createElement(tag);
   n.textContent = text;
   return n;
+}
+function findingLabel(e) {
+  if (e.status === "filtered") return "× Filtered";
+  if (e.status === "kept") return "◆ Kept";
+  return "◇ Raised";
 }
 function choose(key) {
   selection = key;
@@ -131,62 +239,146 @@ function renderPanel() {
   function option(key, name) {
     select.add(new Option(name, key));
   }
-  option("hub", "Review hub");
+  option("hub", "Verdict beacon");
   for (const a of agents) option("a:" + a, roles[a][0]);
   for (const i of islands.keys()) option("i:" + i, i);
+  for (const [id, finding] of markers) option("f:" + id, finding.title);
+  if (![...select.options].some((item) => item.value === selection))
+    selection = "hub";
   select.value = selection;
   const log = events.slice(0, pos);
-  const key = selection.slice(2),
-    land = selection.startsWith("i:"),
-    agent = selection.startsWith("a:");
-  const relevant = (e) =>
-    land
-      ? e.island === key && e.path
-      : agent
-        ? e.agent === key || e.reviewer === key
-        : true;
+  const key = selection.slice(2);
+  const land = selection.startsWith("i:");
+  const agent = selection.startsWith("a:");
+  const finding = selection.startsWith("f:") ? markers.get(key) : null;
+  const relevant = (e) => {
+    if (finding) return e.finding_id === key;
+    if (land) return e.island === key && e.path;
+    if (agent) return e.agent === key || e.reviewer === key;
+    return true;
+  };
   const details = $("details");
+  const activeFinding = document.activeElement?.dataset.finding;
   details.replaceChildren();
   function list(title, values) {
     details.append(el("h3", title));
     const ul = el("ul", "");
-    for (const value of values.length ? values : ["None yet"])
-      ul.append(el("li", value));
+    for (const value of values.length ? values : ["None yet"]) {
+      const li = el("li", "");
+      li.append(value);
+      ul.append(li);
+    }
     details.append(ul);
   }
-  if (agent)
-    details.append(el("p", roles[key][2] + " · " + villagers.get(key).status));
-  if (!land && !agent)
-    details.append(el("p", (repo || "Review hub") + " · " + stage));
-  const paths = new Set();
-  for (const e of log.filter(relevant)) {
-    if (e.path) paths.add(e.path);
-    if (agent) for (const p of e.paths || []) paths.add(p);
-  }
-  list("Touched files", Array.from(paths));
-  const symbols = new Set(
-    log.filter((e) => paths.has(e.path)).flatMap((e) => e.symbols || []),
-  );
-  list("Changed symbols", Array.from(symbols));
-  list(
-    "Findings",
-    Array.from(markers.values())
-      .filter(relevant)
-      .map(
-        (e) =>
-          (e.status === "filtered" ? "× Filtered" : "◆ Raised") +
-          " · " +
-          e.title +
-          " · " +
-          e.path +
-          ":" +
-          e.line +
-          " · " +
-          e.confidence +
-          (e.detail ? " · " + e.detail : "") +
-          (e.explanation ? " — " + e.explanation : ""),
+  const relatedFindings = Array.from(markers.values()).filter(relevant);
+  if (agent) {
+    const v = villagers.get(key);
+    details.append(el("p", roles[key][2] + " · " + v.status));
+    details.append(el("p", v.island || "Verdict beacon"));
+    list(
+      "Agent steps",
+      Array.from(v.steps.values()).map(
+        (e) => "Step " + e.step + " · " + e.status + " · " + usageText([e]),
       ),
-  );
+    );
+  } else if (land) {
+    const pending = relatedFindings.filter(
+      (e) => e.status === "flagged",
+    ).length;
+    const kept = relatedFindings.filter((e) => e.status === "kept").length;
+    const filtered = relatedFindings.filter(
+      (e) => e.status === "filtered",
+    ).length;
+    const concluded = ["completed", "degraded", "failed"].includes(stage);
+    details.append(
+      el(
+        "p",
+        key + " · " + (concluded ? "Run " + stage : islands.get(key).status),
+      ),
+    );
+    details.append(
+      el(
+        "p",
+        kept + " kept · " + pending + " raised · " + filtered + " filtered",
+      ),
+    );
+    if (kept || pending) {
+      const order = ["low", "medium", "high", "critical"];
+      const highest = Math.max(
+        ...relatedFindings
+          .filter((e) => e.status !== "filtered")
+          .map((e) => order.indexOf(e.severity)),
+      );
+      details.append(
+        el(
+          "p",
+          "Highest reported severity · " + (order[highest] || "Unavailable"),
+        ),
+      );
+    }
+  } else if (!finding) {
+    details.append(el("p", (repo || "Verdict beacon") + " · " + stage));
+  }
+  if (finding) {
+    details.append(el("h3", finding.title));
+    list("Finding details", [
+      "File · " + finding.path,
+      "Line · " + (finding.line ?? "Unavailable"),
+      "Confidence · " +
+        (Number.isFinite(finding.confidence)
+          ? (finding.confidence * 100).toFixed(1).replace(/\.0$/, "") + "%"
+          : "Unavailable"),
+      "Severity · " + (finding.severity ?? "Not reported"),
+      "Decision · " + findingLabel(finding),
+    ]);
+    const reason =
+      finding.detail ||
+      (finding.status === "flagged"
+        ? "The specialist raised this finding. This event has no critic decision."
+        : "This recording has no decision reason.");
+    details.append(el("h3", "Critic’s reasoning"), el("p", reason));
+    if (finding.explanation)
+      details.append(
+        el("h3", "Specialist’s explanation"),
+        el("p", finding.explanation),
+      );
+    list(
+      "Evidence",
+      Array.isArray(finding.evidence) ? finding.evidence.map(String) : [],
+    );
+  } else {
+    const paths = new Set();
+    for (const e of log.filter(relevant)) {
+      if (e.path) paths.add(e.path);
+      if (agent) for (const p of e.paths || []) paths.add(p);
+    }
+    list("Touched files", Array.from(paths));
+    list(
+      "Changed symbols",
+      Array.from(
+        new Set(
+          log.filter((e) => paths.has(e.path)).flatMap((e) => e.symbols || []),
+        ),
+      ),
+    );
+    list(
+      "Findings",
+      relatedFindings.map((e) => {
+        const button = el("button", findingLabel(e) + " · " + e.title);
+        button.className = "finding-link";
+        button.dataset.finding = e.finding_id;
+        button.onclick = () => {
+          choose("f:" + e.finding_id);
+          $("entity").focus();
+        };
+        return button;
+      }),
+    );
+    if (activeFinding)
+      Array.from(details.querySelectorAll(".finding-link"))
+        .find((button) => button.dataset.finding === activeFinding)
+        ?.focus();
+  }
   list(
     "Recent events",
     log
@@ -207,11 +399,14 @@ function renderPanel() {
   for (const [a, v] of villagers) {
     const b = el("button", roles[a][0]);
     b.style.setProperty("--color", roles[a][1]);
-    b.append(el("small", v.status));
+    b.append(
+      el("small", v.status),
+      el("small", usageText(Array.from(v.steps.values()))),
+    );
     b.onclick = () => choose("a:" + a);
     $("crew").append(b);
   }
-  $("progress").textContent = pos + " / " + events.length + " events";
+  updateReadouts();
   $("status").textContent =
     (source === "demo" ? "Demo" : source === "file" ? "Recording" : "Live") +
     " · " +
@@ -238,6 +433,7 @@ function frame(now) {
   if (!paused && pos < events.length && now >= due) {
     const e = events[pos++];
     apply(e);
+    renderPanel();
     const next = events[pos];
     const gap = next
       ? Date.parse(next.timestamp) - Date.parse(e.timestamp)
@@ -370,21 +566,29 @@ function frame(now) {
       marks.filter((m) => m.status !== "filtered").length,
       marks.filter((m) => m.status === "filtered").length,
     );
-    const latest = marks[marks.length - 1];
-    if (latest) {
-      const filtered = latest.status === "filtered";
-      const title = String(latest.title);
+    const visible = marks.slice(-5);
+    visible.forEach((finding, index) => {
+      const pinX = x + (index - (visible.length - 1) / 2) * 31;
+      const pinY = y + 69;
+      const filtered = finding.status === "filtered";
+      ctx.fillStyle =
+        selection === "f:" + finding.finding_id ? "#fcf3cf" : "#f7faf4";
+      ctx.fillRect(pinX - 15, pinY - 13, 30, 17);
       label(
-        (filtered ? "× " : "◆ ") +
-          (title.length > 20 ? title.slice(0, 18) + "…" : title) +
-          " · L" +
-          (latest.line ?? "?"),
-        x,
-        y + 68,
-        11,
+        (filtered ? "×" : "◆") + (finding.line ?? "?"),
+        pinX,
+        pinY,
+        10,
         filtered ? "#526963" : "#8b392c",
       );
-    }
+      hitboxes.push({
+        x: pinX,
+        y: pinY - 5,
+        w: 15,
+        h: 9,
+        key: "f:" + finding.finding_id,
+      });
+    });
   }
   agents.forEach((a, idx) => {
     const v = villagers.get(a),
@@ -392,6 +596,10 @@ function frame(now) {
       dx =
         dest.x + (dest === hub ? (idx - 2) * 23 : [-50, -16, 7, 40, 62][idx]),
       dy = dest.y + 10;
+    if (snapPositions) {
+      v.x = dx;
+      v.y = dy;
+    }
     v.x ??= hub.x + (idx - 2) * 23;
     v.y ??= hub.y + 10;
     const walking = Math.hypot(dx - v.x, dy - v.y) > 2;
@@ -428,6 +636,7 @@ function frame(now) {
       );
     hitboxes.push({ x, y: y - 7, w: 11, h: 16, key: "a:" + a });
   });
+  snapPositions = false;
   requestAnimationFrame(frame);
 }
 canvas.onclick = (e) => {
@@ -448,6 +657,9 @@ $("pause").onclick = () => {
   paused = !paused;
   $("pause").textContent = paused ? "Resume" : "Pause";
 };
+$("timeline").oninput = (e) => seek(Number(e.target.value));
+$("back").onclick = () => seek(pos - 1);
+$("next").onclick = () => seek(pos + 1);
 $("restart").onclick = () => {
   paused = false;
   $("pause").textContent = "Pause";
@@ -538,6 +750,7 @@ async function poll() {
     if (version !== revision) return;
     cursor = data.cursor;
     events.push(...data.events);
+    updateReadouts();
   } catch {
     if (version === revision)
       $("status").textContent = "Journal unavailable · reconnecting";

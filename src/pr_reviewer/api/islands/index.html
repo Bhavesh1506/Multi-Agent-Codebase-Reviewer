@@ -41,12 +41,20 @@
         </select>
         ×</label
       >
+      <button id="back" aria-label="Previous event">←</button>
+      <button id="next" aria-label="Next event">→</button>
+      <label class="timeline" for="timeline"
+        >Event
+        <input id="timeline" type="range" min="0" max="0" value="0" />
+      </label>
     </nav>
     <main>
       <section class="chart">
         <div class="heading">
           <h2>Module chart</h2>
-          <span id="progress"></span>
+          <div class="readouts">
+            <span id="progress"></span><span id="metrics"></span>
+          </div>
         </div>
         <div class="viewport">
           <canvas
@@ -54,14 +62,12 @@
             aria-label="Island map. Choose an island or agent in the inspector for details."
           ></canvas>
         </div>
-        <div class="legend">
-          <b>◆</b> Raised finding <i>×</i> Filtered <span>⚑</span> Touched
-          module
-        </div>
+        <div class="legend"><b>◆</b> Raised or kept <i>×</i> Filtered</div>
       </section>
       <aside>
         <h2>Inspector</h2>
-        <label class="sr" for="entity">Select an island or villager</label
+        <label class="sr" for="entity"
+          >Select an island, villager or finding</label
         ><select id="entity"></select>
         <div id="details"></div>
       </aside>

@@ -5,7 +5,7 @@ import time
 
 from pydantic import Field, ValidationError
 
-from pr_reviewer.pipeline.events import report_retry
+from pr_reviewer.pipeline.events import report_retry, report_step
 from pr_reviewer.llm.base import LLMError, LLMProvider
 from pr_reviewer.schemas import Finding, StrictModel
 
@@ -47,24 +47,34 @@ class BaseAgent:
         try:
             for step in range(1, self.max_steps + 1):
                 result.steps = step
-                response = await self.provider.generate(prompt, schema)
-                result.prompt_tokens += response.prompt_tokens
-                result.completion_tokens += response.completion_tokens
-                if result.prompt_tokens + result.completion_tokens > self.max_tokens:
-                    result.error = "agent token budget exceeded"
-                    break
+                step_started = time.monotonic()
+                response = None
+                status = "failed"
+                report_step(step, "analyzing")
                 try:
-                    result.output = AgentOutput.model_validate_json(response.content)
-                    if any(finding.agent != self.name for finding in result.output.findings):
-                        raise ValueError("finding agent does not match executing agent")
-                    result.error = None
-                    break
-                except (ValidationError, ValueError) as exc:
-                    result.output = AgentOutput()
-                    result.error = f"invalid agent JSON: {exc.__class__.__name__}"
-                    if step < self.max_steps:
-                        report_retry(result.error)
-                    prompt += "\nPrevious response failed schema validation. Return only valid JSON."
+                    response = await self.provider.generate(prompt, schema)
+                    result.prompt_tokens += response.prompt_tokens
+                    result.completion_tokens += response.completion_tokens
+                    if result.prompt_tokens + result.completion_tokens > self.max_tokens:
+                        result.error = "agent token budget exceeded"
+                        break
+                    try:
+                        result.output = AgentOutput.model_validate_json(response.content)
+                        if any(finding.agent != self.name for finding in result.output.findings):
+                            raise ValueError("finding agent does not match executing agent")
+                        result.error = None
+                        status = "completed"
+                        break
+                    except (ValidationError, ValueError) as exc:
+                        result.output = AgentOutput()
+                        result.error = f"invalid agent JSON: {exc.__class__.__name__}"
+                        prompt += "\nPrevious response failed schema validation. Return only valid JSON."
+                finally:
+                    report_step(step, status, prompt_tokens=response.prompt_tokens if response else None,
+                                completion_tokens=response.completion_tokens if response else None,
+                                latency_seconds=time.monotonic() - step_started)
+                if step < self.max_steps:
+                    report_retry(result.error)
         except LLMError as exc:
             result.error = str(exc)
         finally:

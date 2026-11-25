@@ -79,13 +79,19 @@ calls the reviewer. Recording failures disable that run's observer. Journals
 contain repository names, file paths, symbols and finding titles. Keep the
 server bound to localhost when reviewing private code.
 
-Specialists analyze the same batch. Their role posts initially sit on its first
-island, and their inspector lists the full assignment. A raised finding moves
-its marker to the reported file's island. The deterministic critic marks
-rejected candidates with a gray cross. The map represents module-level
-activity, including schema retries, Ollama transport retries and degraded
-agent results. Replay compresses long idle periods and spaces out bursts so
-individual events remain visible.
+Use the timeline slider or the arrow buttons to inspect any event. The
+inspector shows the selected island's files, symbols, and finding counts.
+Click a map pin or a finding in the inspector for its line, confidence,
+reported severity, evidence, and the critic's decision. Severity describes
+the reported impact and does not enter confidence filtering.
+
+Specialists analyze the same batch. Their map posts spread across its
+modules, and a villager moves to the reported location when it raises a
+finding. Retry and filtered badges appear as their events play. New journals
+record provider-reported tokens and elapsed time per agent step, plus wall
+time for the whole review. Older journals remain playable and show usage as
+unavailable where those fields are absent. Playback compresses long gaps
+and spaces out bursts so individual events remain visible.
 
 With the project's virtual environment active:
 

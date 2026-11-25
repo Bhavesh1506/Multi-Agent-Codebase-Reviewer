@@ -27,6 +27,7 @@ def responder():
             "agent": agent, "path": PATH, "line": 77 if agent == "test_gap_finder" else 2,
             "confidence": 0.5 if agent == "concurrency_guard" else 0.75,
             "title": "Price changed", "explanation": "New price", "evidence": ["return 3"],
+            "severity": "high",
         }]}
     return MockClient(respond)
 
@@ -56,6 +57,21 @@ async def test_event_history_matches_unobserved_verdict(tmp_path):
     raised = {e["finding_id"] for e in events if e["event"] == "finding_raised"}
     dropped = {e["finding_id"] for e in events if e["event"] == "finding_filtered"}
     assert len(raised) == 4 and raised - dropped == {"scope_analyst/0"}
+    kept = [event for event in events if event["event"] == "finding_kept"]
+    assert [event["finding_id"] for event in kept] == list(raised - dropped)
+    assert kept[0]["severity"] == "high" and kept[0]["evidence"] == ["return 3"]
+    assert "confidence threshold" in kept[0]["detail"]
+    assert {event["detail"] for event in events if event["event"] == "finding_filtered"} == {
+        "Duplicate finding", "Below confidence threshold", "Outside changed lines",
+    }
+    steps = [event for event in events if event["event"] == "agent_step"
+             and "latency_seconds" in event]
+    assert [event["status"] for event in steps if event["agent"] == "scope_analyst"] == [
+        "failed", "completed",
+    ]
+    assert sum(event["prompt_tokens"] + event["completion_tokens"] for event in steps) == observed.total_tokens
+    assert all(event["latency_seconds"] >= 0 for event in steps)
+    assert events[-1]["total_tokens"] == observed.total_tokens
     # An unavailable recorder must not break a normal review.
     assert (await review(path)).verdict == plain.verdict
 
